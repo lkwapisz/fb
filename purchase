@@ -1,0 +1,110 @@
+//FB PURCHASE EVENT - GTM CLIENT SIDE CONTAINER
+
+<script>
+(function () {
+  var timestamp_utc = Math.floor((new Date()).getTime() / 1000);
+  var event_name = 'Purchase'
+  if(typeof(fbq)=='function'){
+    // build contents object
+      var checkoutFbProds = {{dlv.items}};
+      var fbProds = [];
+      var fbContent = [];
+      for (i = 0; i < checkoutFbProds.length; i++) {
+        var obj = {};
+        fbProds[i] = checkoutFbProds[i].item_id;
+        obj.id = checkoutFbProds[i].item_id;
+        obj.quantity = 1;
+        obj.item_price = checkoutFbProds[i].price;
+        fbContent.push(obj);
+      };
+    // 
+    fbq('track', event_name, {
+      value: {{cjs.netRevenue}},
+      currency: {{currency}},
+      contents: fbContent,
+      content_type: 'product'
+    },{
+      eventID: event_name + timestamp_utc
+    });
+  //capi
+    var r_headers = new Headers();
+    r_headers.append("Content-Type", "application/json");
+    r_headers.append("X-Gtm-Server-Preview","ZW52LTR8QUJNN0R3MlpPMDIyU0ZFcDFiRzR4UXwxODkyYTNmYTI2ZDQ1M2EyNDI0NDg=");
+    var body = {
+      "data": [{
+        "event_name": event_name,
+        "event_time": timestamp_utc,
+        "event_id": event_name + timestamp_utc,
+        "event_source_url": document.URL,
+        "user_data": {
+          "client_user_agent": navigator.userAgent,
+          "fbc":{{cookie_fbc}},
+          "fbp":{{cookie_fbp}},
+          },
+            "custom_data": {
+              value: {{cjs.netRevenue}},
+              currency: '{{currency}}',
+              contents: fbContent,
+              content_type: 'product'
+            },
+         "data_processing_options": []
+          }]
+        };
+    var options = {
+      method: 'POST',
+      mode: 'cors',
+      headers: r_headers,
+      body: JSON.stringify(body)
+      };
+    fetch('https://expondo-282114.lm.r.appspot.com/f_purchase', options);
+    }
+})();
+</script>
+
+
+//GTM SERVER SIDE PART
+// Handle Purchase Event
+} else if (req_path === '/f_purchase') {
+    claimRequest();
+    // Claim and parse event data
+    let event_city = sha256Sync(getRequestHeader('X-Appengine-City').trim().toLowerCase(), {
+        outputEncoding: 'hex'
+    });
+    let event_country = sha256Sync(getRequestHeader('X-Appengine-Country').trim().toLowerCase(), {
+        outputEncoding: 'hex'
+    });
+    let event_ip = getRequestHeader('X-Appengine-User-Ip');
+    let event_data = getRequestBody();
+    let json_event_data = JSON.parse(event_data);
+    // Modify user data
+    json_event_data.data[0].user_data.ct = event_city;
+    json_event_data.data[0].user_data.country = event_country;
+    json_event_data.data[0].user_data.client_ip_address = event_ip;
+    if (json_event_data.data[0].user_data.em != 'undefined') {
+      var em_string = json_event_data.data[0].user_data.em;
+      var em_string = em_string.search('@') === -1 ? em_string : sha256Sync(em_string.trim().toLowerCase(), {outputEncoding: 'hex'});
+      json_event_data.data[0].user_data.em = em_string;
+    }
+    // Prepare response body
+    let r_body = json_event_data;
+    if (data.allowedOrigins === '*') {
+        setResponseHeader('Access-Control-Allow-Origin', origin);
+    } else {
+        data.allowedOrigins.split(',').forEach(org => setResponseHeader('Access-Control-Allow-Origin', org));
+    }
+    setResponseHeader('Access-Control-Allow-Credentials', 'true');
+    // Send req to cAPI
+    sendHttpRequest(
+        graph_endpoint,
+        (statusCode, headers, response) => {
+            if (statusCode >= 200 && statusCode < 300) {
+                logToConsole('done with success');
+                return;
+            }
+            logToConsole('done with err');
+        },
+        fb_request_headers,
+        JSON.stringify(r_body));
+    setResponseStatus(200);
+    returnResponse();
+}
